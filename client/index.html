@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Global Chat — Socket.IO + React</title>
+    <link rel="icon" href="data:;base64,iVBORw0KGgo=">
+    <style>
+      /* Dark theme */
+      :root{
+        --bg:#081225; --panel:#0b1726; --muted:#9fb0d6; --accent1:#7c3aed; --accent2:#06b6d4;
+        --me-bg: linear-gradient(90deg, rgba(124,58,237,0.12), rgba(6,182,212,0.08));
+      }
+      html,body,#root{height:100%;margin:0;background:var(--bg);color:#e6eef8;font-family:Inter,system-ui,Segoe UI,Roboto;}
+      .app{display:flex;align-items:center;justify-content:center;padding:24px;height:100%;}
+      .chat{width:100%;max-width:900px;background:var(--panel);border-radius:12px;padding:18px;box-shadow:0 8px 32px rgba(2,6,23,0.6);display:flex;flex-direction:column;gap:12px;}
+      .header{display:flex;justify-content:space-between;align-items:center;}
+      .header h1{margin:0;font-size:1.2rem}
+      .user-input input{background:transparent;border:1px solid #1f2937;padding:6px 8px;border-radius:6px;color:inherit}
+      .messages{background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));padding:12px;border-radius:8px;height:420px;overflow:auto;display:flex;flex-direction:column;gap:8px;}
+      .msg{padding:8px 10px;border-radius:8px;max-width:85%;}
+      .msg.me{margin-left:auto;background:var(--me-bg);}
+      .msg.other{background:rgba(255,255,255,0.02);}
+      .meta{font-size:0.75rem;color:var(--muted);display:flex;gap:8px;align-items:center;}
+      .composer{display:flex;gap:8px;}
+      .composer input{flex:1;padding:10px;border-radius:8px;border:1px solid #1f2937;background:#071026;color:inherit}
+      .composer button{padding:10px 14px;border-radius:8px;background:linear-gradient(90deg,var(--accent1),var(--accent2));border:none;color:white;cursor:pointer}
+      .typing{font-size:0.85rem;color:var(--muted);min-height:18px}
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+
+    <!-- React UMD -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <!-- Socket.IO client -->
+    <script src="/socket.io/socket.io.js"></script>
+
+    <script>
+    (function(){
+      const e = React.createElement;
+      const { useState, useEffect, useRef } = React;
+
+      const HISTORY_KEY = 'chat_history';
+      const NAME_KEY = 'chat_username';
+      const LOCAL_HISTORY_LIMIT = 50;
+
+      function loadLocalHistory(){ try { return JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]'); } catch(e){ return []; } }
+      function saveLocalHistory(h){ try { localStorage.setItem(HISTORY_KEY, JSON.stringify(h.slice(-LOCAL_HISTORY_LIMIT))); } catch(e){}
+      }
+
+      function App(){
+        const [messages, setMessages] = useState(loadLocalHistory());
+        const [input, setInput] = useState('');
+        const [name, setName] = useState(localStorage.getItem(NAME_KEY) || '');
+        const [typing, setTyping] = useState('');
+        const listRef = useRef(null);
+        const socketRef = useRef(null);
+        const typingTimeout = useRef(null);
+
+        useEffect(() => {
+          const socket = io(); // connects to same origin
+          socketRef.current = socket;
+
+          socket.on('connect', () => console.log('connected', socket.id));
+          socket.on('history', (hist) => {
+            // merge server history with local (server first)
+            const merged = mergeHistories(messages, hist).slice(-LOCAL_HISTORY_LIMIT);
+            setMessages(merged);
+            saveLocalHistory(merged);
+          });
+          socket.on('message', (msg) => {
+            setMessages(m => { const next = [...m, msg].slice(-LOCAL_HISTORY_LIMIT); saveLocalHistory(next); return next; });
+          });
+          socket.on('typing', n => setTyping(n));
+          socket.on('stopTyping', () => setTyping(''));
+
+          return () => socket.disconnect();
+        }, []);
+
+        useEffect(() => { if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight; }, [messages]);
+
+        function mergeHistories(local, server){
+          const seen = new Set();
+          const out = [];
+          (server || []).forEach(m => { seen.add(m.id); out.push(m); });
+          (local || []).forEach(m => { if (!seen.has(m.id)) out.push(m); });
+          return out;
+        }
+
+        function sendMessage(){
+          if(!input.trim()) return;
+          const username = (name && name.trim()) || 'Guest';
+          try { localStorage.setItem(NAME_KEY, username); } catch(e){}
+          const msg = { id: Date.now().toString(), user: username, text: input.trim(), ts: new Date().toISOString() };
+          setMessages(m => { const next = [...m, msg].slice(-LOCAL_HISTORY_LIMIT); saveLocalHistory(next); return next; });
+          socketRef.current.emit('message', msg);
+          setInput('');
+          socketRef.current.emit('stopTyping');
+        }
+
+        function onInputChange(v){
+          setInput(v);
+          const username = (name && name.trim()) || 'Guest';
+          socketRef.current.emit('typing', username);
+          clearTimeout(typingTimeout.current);
+          typingTimeout.current = setTimeout(() => { socketRef.current.emit('stopTyping'); }, 800);
+        }
+
+        return e('div',{className:'app'}, e('div',{className:'chat'}, 
+          e('div',{className:'header'}, e('h1',null,'Global Lobby'), e('div',{className:'user-input'}, e('input',{value:name, onChange: (ev)=>{ setName(ev.target.value); try{ localStorage.setItem(NAME_KEY, ev.target.value); }catch(e){} }, placeholder:'Your name (saved locally)'}))),
+          e('div',{className:'messages', ref:listRef}, messages.map(m => e('div',{key:m.id, className:'msg ' + (m.user === name ? 'me' : 'other')},
+            e('div',{className:'meta'}, e('span',{className:'user'},m.user), e('span',{className:'ts'}, new Date(m.ts).toLocaleTimeString())),
+            e('div',{className:'text'}, m.text)
+          ))),
+          e('div',{className:'typing'}, typing ? typing + ' is typing...' : ''),
+          e('div',{className:'composer'}, e('input',{value:input, onChange: (ev)=>onInputChange(ev.target.value), onKeyDown: (ev)=>{ if(ev.key === 'Enter') sendMessage(); }, placeholder:'Type a message...'}), e('button',{onClick:sendMessage},'Send'))
+        ));
+      }
+
+      ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(App));
+    })();
+    </script>
+  </body>
+</html>
