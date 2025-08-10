@@ -1,6 +1,6 @@
-# Socket.IO + React (UMD) — Single Global Chat (LocalStorage, Dark Theme)
+# Socket.IO + React JS CHAT-APP
 
-This project is a minimal single-room global chat using **Socket.IO** and **React** (UMD build via CDN). It's designed for **local development** and **no external hosting**.
+This project is a minimal single-room global chat using **Socket.IO** and **React** 
 
 ## Features
 - Single global chat room where everyone sees all messages in real time.
