@@ -31,6 +31,3 @@ This project is a minimal single-room global chat using **Socket.IO** and **Reac
 - Messages are kept in server memory (lost on restart) and also cached per-client in the browser's `localStorage`.
 - No database is required.
 
-## Notes & Next steps
-- For production you'd want persistence (Redis/Postgres), authentication, and sanitization of messages.
-- If you want a React project with a build step (CRA/Vite/Next.js) instead, tell me and I'll create that variant.
